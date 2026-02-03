@@ -15,32 +15,31 @@ class SerialService:
         return [port.device for port in serial.tools.list_ports.comports()]
 
     def connect(self, port):
-        print(f"--- [DEBUG] Serial Connecting to {port} ---")
         try:
             self.ser = serial.Serial(port, 115200, timeout=0.1)
             self.is_connected = True
             threading.Thread(target=self._read_loop, daemon=True).start()
-            print(f"--- [SUCCESS] UART Connected ---")
-            return True, f"SERIAL OK"
+            return True, "SERIAL OK"
         except Exception as e:
-            print(f"--- [ERROR] UART Fail: {e} ---")
             return False, str(e)
 
     def disconnect(self):
         self.is_connected = False
         if self.ser: 
-            self.ser.close()
-            print("--- [DEBUG] UART Socket Closed ---")
+            try: self.ser.close()
+            except: pass
         return "SERIAL CLOSED"
 
     def send(self, data_str):
         if self.is_connected and self.ser:
-            self.ser.write(data_str.encode('utf-8'))
+            try:
+                self.ser.write(data_str.encode('utf-8'))
+            except: self.is_connected = False
 
     def _read_loop(self):
         while self.is_connected:
             try:
-                if self.ser.in_waiting:
+                if self.ser and self.ser.in_waiting:
                     line = self.ser.readline().decode('utf-8', errors='ignore').strip()
                     if line and self.log_callback: self.log_callback(f"[UART] {line}")
             except: break
@@ -53,37 +52,40 @@ class TCPService:
         self.log_callback = log_callback
 
     def connect(self, ip, port):
-        # 强制控制台打印
-        print(f"--- [DEBUG] TCP Connecting to {ip}:{port} ... ---")
         try:
             self.client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.client.settimeout(3) 
             self.client.connect((str(ip), int(port)))
+            self.client.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
             self.is_connected = True
             self.client.settimeout(0.1)
             threading.Thread(target=self._read_loop, daemon=True).start()
-            print(f"--- [SUCCESS] TCP Connected! ---")
             return True, "TCP OK"
         except Exception as e:
-            print(f"--- [ERROR] TCP Fail: {e} ---")
-            self.is_connected = False
             return False, str(e)
 
     def disconnect(self):
         self.is_connected = False
         if self.client:
-            try:
-                self.client.close()
-                print("--- [DEBUG] TCP Socket Closed ---")
+            try: self.client.close()
             except: pass
         return "TCP CLOSED"
 
+    # 在 TCPService 类中
     def send(self, data_str):
         if self.is_connected and self.client:
             try:
+                # 方案 A: 只要发送就视为成功，不阻塞
                 self.client.send(data_str.encode('utf-8'))
-            except:
+                
+                # 方案 B (更激进): 如果你需要确保指令被立即推出去
+                # 可以在 init 里设置 self.client.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+                # 你的代码里已经有了，这很好。
+            except OSError as e:
+                # 出现错误（比如 BrokenPipe）时立即标记断开，防止后续卡顿
+                print(f"TCP Error: {e}")
                 self.is_connected = False
+                self.disconnect()
 
     def _read_loop(self):
         while self.is_connected:
@@ -109,19 +111,15 @@ class HybridService:
         return p
 
     def connect(self, target):
-        print(f"--- [DEBUG] HybridService.connect called with: {target} ---")
         if ":" in target:
             try:
                 ip, port = target.split(":")
                 return self.tcp.connect(ip.strip(), port.strip())
-            except Exception as e:
-                print(f"--- [ERROR] Target split fail: {e} ---")
-                return False, "Format Error"
+            except: return False, "Format Error"
         else:
             return self.serial.connect(target)
 
     def disconnect(self):
-        print("--- [DEBUG] HybridService.disconnect called ---")
         self.serial.disconnect()
         self.tcp.disconnect()
         return "CLOSED"
