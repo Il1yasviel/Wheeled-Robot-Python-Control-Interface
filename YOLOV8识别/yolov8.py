@@ -7,7 +7,12 @@ print("正在加载模型，首次运行会自动下载权重文件...")
 model = YOLO('yolov8n.pt') 
 
 # 2. 打开电脑默认摄像头 (索引通常为0)
-cap = cv2.VideoCapture(0)
+#cap = cv2.VideoCapture(0)
+
+# 2. 连接开发板的视频流
+# 请确保你的电脑能 ping 通 192.168.10.110
+stream_url = "http://192.168.10.110:8080/?action=stream"
+cap = cv2.VideoCapture(stream_url)
 
 # 检查摄像头是否成功打开
 if not cap.isOpened():

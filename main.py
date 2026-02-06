@@ -75,10 +75,10 @@ class Controller:
         tx, ty = 0, 0
         r = DIMS["joy_radius"]
         
-        if self.keys_move['w']: ty -= r * 0.2 
-        if self.keys_move['s']: ty += r * 0.2
-        if self.keys_move['a']: tx -= r * 1.0
-        if self.keys_move['d']: tx += r * 1.0
+        if self.keys_move['w']: ty -= r * 0.04
+        if self.keys_move['s']: ty += r * 0.04
+        if self.keys_move['a']: tx -= r * 0.24
+        if self.keys_move['d']: tx += r * 0.24
         
         dist = math.sqrt(tx*tx + ty*ty)
         if dist > r:
@@ -149,10 +149,10 @@ class Controller:
         # 3. 机械零点
         elif key == 'i':
             # 对应 btn_zero_up
-            self.adjust_zero(-0.5)
+            self.adjust_zero(-0.2)
         elif key == 'k':
             # 对应 btn_zero_down
-            self.adjust_zero(0.5)
+            self.adjust_zero(0.2)
 
     def on_key_release(self, event):
         key = event.keysym.lower()
