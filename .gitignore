@@ -1,2 +1,3 @@
 models/
-YOLOV8_recognition/model/*.pt
+*.pt
+__pycache__/
