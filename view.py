@@ -138,8 +138,8 @@ class MainView:
         # ★ 核心修改：放弃 Label，改用 Canvas 来显示环境数据        Label受到限制，无论如何都没法改变字体的颜色，强行改变太复杂了
         # =========================================================
         # 创建一个小画布，高度30，宽度足够容纳文字(比如400)，背景黑，无边框
-        self.env_canvas = tk.Canvas(header, bg="black", height=30, width=400, highlightthickness=0)
-        self.env_canvas.pack(side="left", padx=10)
+        self.env_canvas = tk.Canvas(header, bg="black", height=30, width=550, highlightthickness=0)
+        self.env_canvas.pack(side="left", padx=10,fill="x", expand=True)
 
         # 在画布上直接画文字！
         # 参数说明：
@@ -173,31 +173,48 @@ class MainView:
 
 
     def update_env_data(self, text):
-            """更新环境监测数据 (修改画布文字内容)"""
-            if not text: return
+        """更新环境数据 (含判空与基准扣除算法)"""
+        if not text: return
+        try:
+            data = json.loads(text)
+            
+            # 1. 温湿度
+            temp = data.get("temp")
+            humi = data.get("humi")
+            temp_str = f"{temp:02d}" if temp is not None else "--"
+            humi_str = f"{humi:02d}" if humi is not None else "--"
+            
+            # 2. 气体浓度 (零点校准)
+            gas_raw = data.get("gas_raw")
+            alc_str = "--"
+            text_color = "#33FF33" # 默认绿
 
-            try:
-                data = json.loads(text)
-                
-                if data.get("status") == "ok":
-                    temp = data["temp"]
-                    humi = data["humi"]
-                    
-                    # 拼凑字符串
-                    display_text = f"/// TEMP: {temp}\u00b0C   HUMI: {humi}%"
-                    
-                    # ★ 修改这里：使用 itemconfigure 更新画布上指定 ID 的文字内容
-                    # 颜色和字体已经在创建时固定了，这里只改文字就行
-                    self.env_canvas.itemconfigure(self.env_text_id, text=display_text)
-                    
+            if gas_raw is not None:
+                # --- 参数配置 ---
+                ZERO_POINT = 175     # 你的环境底噪 (Raw)
+                SENSITIVITY = 0.2    # 放大倍数
+                ADC_SCALE = 1.7578125 
+                # ---------------
+
+                if gas_raw <= ZERO_POINT:
+                    alc_percent = 0.0
                 else:
-                    err_text = f"/// SENSOR ERR: {data.get('msg')}"
-                    self.env_canvas.itemconfigure(self.env_text_id, text=err_text)
-                    
-            except json.JSONDecodeError:
-                self.env_canvas.itemconfigure(self.env_text_id, text=f"/// MSG: {text}")
-            except Exception as e:
-                print(f"UI update error: {e}")
+                    # 增量算法
+                    delta = gas_raw - ZERO_POINT
+                    alc_percent = delta * SENSITIVITY
+                
+                if alc_percent > 100.0: alc_percent = 100.0
+                alc_str = f"{alc_percent:.1f}%"
+                
+                if alc_percent > 20.0: text_color = "#FF3333" # 报警红
+            
+            display_text = f"/// TEMP: {temp_str}°C   HUMI: {humi_str}%   ALC: {alc_str}"
+            self.env_canvas.itemconfigure(self.env_text_id, text=display_text, fill=text_color)
+
+        except json.JSONDecodeError:
+            pass
+        except Exception as e:
+            print(f"UI update error: {e}")
 
 
     # ==================================================
