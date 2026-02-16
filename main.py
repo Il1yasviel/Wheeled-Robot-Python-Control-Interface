@@ -11,6 +11,8 @@ from config import COLORS, DIMS, PARAMS
 from view import MainView
 # 从自定义通信模块导入混合通信服务类（支持串口和网络）
 from comms import HybridService
+#导入视频相关的
+from vision_service import VisionService 
 
 class Controller:
     def __init__(self):
@@ -55,11 +57,46 @@ class Controller:
         # 初始扫描一次可用的串口
         self.refresh_ports()
 
+
+        # ========================================================
+        # 启动视觉检测线程
+        # ========================================================
+        # 视频流地址
+        video_url = "http://192.168.10.114:8080/?action=stream" 
+        
+        # 1. 实例化 VisionService
+        # 参数1: 地址, 参数2: 这里的 self.update_vision_ui 是回调函数
+        self.vision_thread = VisionService(video_url, self.update_vision_ui)
+        
+        # 2. 设置为守护线程 (Daemon)，这样主程序关闭时它也会跟着死，不会卡在后台
+        self.vision_thread.daemon = True 
+        
+        # 3. 开始运行
+        self.vision_thread.start()
+        # ========================================================
+
+
         # 启动“心跳”循环函数，该函数会每隔 50ms 自动运行一次，负责实时更新和发包
         self.heartbeat_loop()
 
         # 进入 tkinter 的主事件循环，开始监听所有用户交互
         self.root.mainloop()
+
+
+    # ============================================================
+    # ★ 新增：视觉回调函数 (这是桥梁)
+    # ============================================================
+    def update_vision_ui(self, frame, fps_text):
+        """
+        这个函数由 VisionService (子线程) 每帧调用一次。
+        千万注意：Tkinter 不允许子线程直接修改 UI。
+        必须使用 root.after(0, func) 将任务扔回主线程执行。
+        """
+        if self.view:
+            # 使用 lambda 将参数传递给 view 的 update_video_frame
+            self.root.after(0, lambda: self.view.update_video_frame(frame, fps_text))
+
+
 
     # ============================================================
     #  心跳循环：控制器的“发动机”，处理定时任务
@@ -357,7 +394,13 @@ class Controller:
             self.log_msg("[SYS] >> DISCONNECTED")
 
     # 应用程序关闭时的清理操作
+    # ★ 修改：应用程序关闭时的清理操作
     def close_app(self):
+        print("Stopping threads...")
+        # 停止视觉线程
+        if hasattr(self, 'vision_thread'):
+            self.vision_thread.stop()
+            
         self.comms.disconnect() # 断开连接
         self.root.destroy()     # 销毁窗口
 
