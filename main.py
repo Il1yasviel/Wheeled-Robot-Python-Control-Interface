@@ -13,6 +13,9 @@ from view import MainView
 from comms import HybridService
 #导入视频相关的
 from vision_service import VisionService 
+# 导入新写的服务
+from sensor_service import SensorService 
+
 
 class Controller:
     def __init__(self):
@@ -22,6 +25,7 @@ class Controller:
         self.view = MainView(self.root, self.close_app)
         # 实例化通信服务类，并传入日志记录函数以便在界面显示信息
         self.comms = HybridService(self.log_msg)
+        self.is_drawing = False         # 1. 增加一个锁标记，来不及处理的图片就直接丢掉，否则会变得越来越卡
         
         # --- 运动状态变量 (核心状态) ---
         self.val_m = 0      # 存储当前的前进/后退速度 (Movement)
@@ -76,11 +80,69 @@ class Controller:
         # ========================================================
 
 
+        # 开发板 IP 是这个，端口是 8888
+        target_ip = "192.168.10.114" 
+        target_port = 8888
+        
+        self.sensor_thread = SensorService(target_ip, target_port, self.update_sensor_ui)
+        self.sensor_thread.daemon = True # 守护线程，主程序关了它也关
+        self.sensor_thread.start()
+
+
+
+
+
         # 启动“心跳”循环函数，该函数会每隔 50ms 自动运行一次，负责实时更新和发包
         self.heartbeat_loop()
 
         # 进入 tkinter 的主事件循环，开始监听所有用户交互
         self.root.mainloop()
+
+
+    # ============================================================
+    # ★ 传感器回调函数
+    # ============================================================
+    def update_sensor_ui(self, text):
+        """
+        这个函数由 SensorService 子线程调用。
+        必须通过 root.after 扔回主线程更新 UI。
+        """
+        self.root.after(0, lambda: self.view.update_env_data(text))
+
+    # ============================================================
+    # ★ 统一的关闭程序函数 (合并了视觉、传感器和串口清理)
+    # ============================================================
+    def close_app(self):
+        print("--- Closing App & Stopping Threads ---")
+        
+        # 1. 停止视觉线程
+        if hasattr(self, 'vision_thread'):
+            try:
+                self.vision_thread.stop()
+                print("Vision thread stopped.")
+            except Exception as e:
+                print(f"Error stopping vision: {e}")
+        
+        # 2. 停止传感器线程 (如果不加这步，关闭窗口后后台还会报错)
+        if hasattr(self, 'sensor_thread'):
+            try:
+                self.sensor_thread.stop()
+                print("Sensor thread stopped.")
+            except Exception as e:
+                print(f"Error stopping sensor: {e}")
+
+        # 3. 断开底层通信 (串口/TCP)
+        if hasattr(self, 'comms'):
+            self.comms.disconnect()
+            print("Comms disconnected.")
+
+        # 4. 销毁主窗口
+        try:
+            self.root.destroy()
+            print("Window destroyed.")
+        except Exception as e:
+            print(f"Error destroying window: {e}")
+
 
 
     # ============================================================
@@ -93,9 +155,22 @@ class Controller:
         必须使用 root.after(0, func) 将任务扔回主线程执行。
         """
         if self.view:
-            # 使用 lambda 将参数传递给 view 的 update_video_frame
-            self.root.after(0, lambda: self.view.update_video_frame(frame, fps_text))
+            # 2. 核心逻辑：如果当前界面正在画上一帧，直接丢弃这一帧，不要去排队！
+            if self.is_drawing:
+                return 
+        # 上锁
+        self.is_drawing = True
+        # 发送任务给主线程
+        self.root.after(0, lambda: self._start_drawing(frame, fps_text))
 
+
+    def _start_drawing(self, frame, fps_text):
+        try:
+            # 3. 执行真正的绘图
+            self.view.update_video_frame(frame, fps_text)
+        finally:
+            # 4. 无论如何，画完了解锁，允许下一帧进来
+            self.is_drawing = False
 
 
     # ============================================================
@@ -174,8 +249,8 @@ class Controller:
         # 绑定机械零点输入框的回车确认事件
         self.view.entry_zero.bind("<Return>", self.on_zero_confirm)
         # 绑定微调按钮逻辑（调整零点偏置）
-        self.view.btn_zero_up.command = lambda: self.adjust_zero(-0.5)
-        self.view.btn_zero_down.command = lambda: self.adjust_zero(0.5)
+        self.view.btn_zero_up.command = lambda: self.adjust_zero(-0.1)
+        self.view.btn_zero_down.command = lambda: self.adjust_zero(0.1)
         
         # 绑定虚拟摇杆 1 的鼠标交互（拖动、释放、点击）
         self.view.joy1.tag_bind(self.view.joy1.knob, "<B1-Motion>", self.on_drag_joy1)
@@ -393,16 +468,6 @@ class Controller:
             self.view.btn_tcp_connect.config(text="LINK", bootstyle="success-outline")
             self.log_msg("[SYS] >> DISCONNECTED")
 
-    # 应用程序关闭时的清理操作
-    # ★ 修改：应用程序关闭时的清理操作
-    def close_app(self):
-        print("Stopping threads...")
-        # 停止视觉线程
-        if hasattr(self, 'vision_thread'):
-            self.vision_thread.stop()
-            
-        self.comms.disconnect() # 断开连接
-        self.root.destroy()     # 销毁窗口
 
 # 程序入口
 if __name__ == "__main__":

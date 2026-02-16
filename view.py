@@ -4,7 +4,7 @@ import cv2
 import ttkbootstrap as ttk  # 引入美化版 Tk 组件库
 from ttkbootstrap.constants import * # 引入 UI 布局常量（如 LEFT, BOTH 等）
 from PIL import Image, ImageTk  # 仅保留图像格式转换功能，用于显示
-
+import json
 
 
 # 尝试兼容不同版本的 ttkbootstrap 导入滚动文本框组件
@@ -26,6 +26,7 @@ class MainView:
         """
         self.root = root
         self.close_callback = close_callback
+        
         
         # --- 窗口物理特性设置 ---
         self.root.overrideredirect(True)      # 强行移除系统原生标题栏（实现无边框 NERV 风格）
@@ -130,8 +131,31 @@ class MainView:
         header.pack(fill="x", side="top", pady=(5,0))
         
         tk.Label(header, text="/// OPTICAL FEED", fg=COLORS["eva_red"], bg="black", 
-                 font=("Consolas", 10, "bold")).pack(side="left", padx=10)
+                 font=("Consolas", 14, "bold")).pack(side="left", padx=10)
         
+
+        # =========================================================
+        # ★ 核心修改：放弃 Label，改用 Canvas 来显示环境数据        Label受到限制，无论如何都没法改变字体的颜色，强行改变太复杂了
+        # =========================================================
+        # 创建一个小画布，高度30，宽度足够容纳文字(比如400)，背景黑，无边框
+        self.env_canvas = tk.Canvas(header, bg="black", height=30, width=400, highlightthickness=0)
+        self.env_canvas.pack(side="left", padx=10)
+
+        # 在画布上直接画文字！
+        # 参数说明：
+        # 0, 15: 文字左侧中间的坐标 (x=0, y=高度的一半)
+        # text: 初始文字
+        # fill: 文字颜色 (强制亮红，不受主题影响)
+        # font: 字体设置
+        # anchor="w": 锚点设为西(左)侧，保证文字从左往右排列
+        self.env_text_id = self.env_canvas.create_text(0, 15, 
+                                                       text="ENV: SCANNING...", 
+                                                       fill="#FF3333", 
+                                                       font=("Consolas", 14, "bold"), 
+                                                       anchor="w")
+        # =========================================================
+
+
         # 这里只放置一个 Label 用于显示 FPS，具体数值由外部更新
         self.fps_label = tk.Label(header, text="STANDBY", fg="gray", bg="black", font=("Consolas", 10))
         self.fps_label.pack(side="right", padx=10)
@@ -146,6 +170,34 @@ class MainView:
         self.video_canvas.create_text(w/2, h/2, text="WAITING FOR SIGNAL...", 
                                       fill="gray", font=("Impact", 20), tags="status_text")
 
+
+
+    def update_env_data(self, text):
+            """更新环境监测数据 (修改画布文字内容)"""
+            if not text: return
+
+            try:
+                data = json.loads(text)
+                
+                if data.get("status") == "ok":
+                    temp = data["temp"]
+                    humi = data["humi"]
+                    
+                    # 拼凑字符串
+                    display_text = f"/// TEMP: {temp}\u00b0C   HUMI: {humi}%"
+                    
+                    # ★ 修改这里：使用 itemconfigure 更新画布上指定 ID 的文字内容
+                    # 颜色和字体已经在创建时固定了，这里只改文字就行
+                    self.env_canvas.itemconfigure(self.env_text_id, text=display_text)
+                    
+                else:
+                    err_text = f"/// SENSOR ERR: {data.get('msg')}"
+                    self.env_canvas.itemconfigure(self.env_text_id, text=err_text)
+                    
+            except json.JSONDecodeError:
+                self.env_canvas.itemconfigure(self.env_text_id, text=f"/// MSG: {text}")
+            except Exception as e:
+                print(f"UI update error: {e}")
 
 
     # ==================================================
