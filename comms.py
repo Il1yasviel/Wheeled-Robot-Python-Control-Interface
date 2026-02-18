@@ -153,6 +153,37 @@ class TCPService:
             # 每次读取后休眠 100 毫秒，降低资源消耗
             time.sleep(0.1)
 
+
+
+
+#使用UDP服务，只发送不接收
+class GimbalUDPService:
+    def __init__(self, ip, port):
+        self.target_addr = (ip, port)
+        # 创建 UDP Socket
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
+    def send_angle(self, pan, tilt):
+        """
+        发送云台角度
+        :param pan: 左右角度 (int)
+        :param tilt: 上下角度 (int)
+        """
+        try:
+            # 协议格式：P90,T90
+            msg = f"P{int(pan)},T{int(tilt)}"
+            # UDP 发送不需要 connect，直接 sendto
+            self.sock.sendto(msg.encode('utf-8'), self.target_addr)
+        except Exception as e:
+            # UDP 发送极少报错，除非网卡掉了，这里简单打印一下即可
+            print(f"[Gimbal Error] {e}")
+
+    def close(self):
+        self.sock.close()
+
+
+
+
 # 定义混合服务类，用于同时管理串口和 TCP
 class HybridService:
     def __init__(self, log_callback=None):

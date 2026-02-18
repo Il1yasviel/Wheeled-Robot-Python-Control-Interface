@@ -10,7 +10,7 @@ class SensorService(threading.Thread):
         self.callback = callback # 回调函数，用于把数据传回 Controller
         self.running = True
         self.sock = None
-
+    #重写父类的函数，当线程对象调用start函数后，就会间接调用这个run函数
     def run(self):
         while self.running:
             try:

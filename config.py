@@ -51,6 +51,13 @@ PARAMS = {
 
 # --- config.py：网络通信相关的基础配置 ---
 TCP_CONFIG = {
-    "default_ip": "192.168.10.110",  # 目标设备（如树莓派/控制器）的默认静态 IP 地址
+    "default_ip": "192.168.10.110",  # 目标设备单片机的默认静态 IP 地址
     "default_port": 8080             # TCP 通信所使用的端口号
+
+}
+
+UDP_CONFIG = {
+    "RK3506_ip":"192.168.10.114",
+    "RK3506_sensor_port":8888,
+    "RK3506_UDP_port":9999
 }

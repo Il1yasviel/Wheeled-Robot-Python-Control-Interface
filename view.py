@@ -13,8 +13,8 @@ try:
 except ImportError:
     from ttkbootstrap.scrolled import ScrolledText
 
-# 导入外部定义的视觉配置与自定义组件
-from config import COLORS, DIMS
+# 导入外部定义的视觉配置与自定义组件        
+from config import COLORS, DIMS,TCP_CONFIG
 from widgets import JoystickWidget, DecorPanel, WarningStrip, EvaButton 
 
 class MainView:
@@ -107,11 +107,12 @@ class MainView:
         middle.pack(fill="x", pady=10)
          # 左装饰面板                 传入画布的宽度和长度，想要多大的画布
         DecorPanel(middle, "left", DIMS["decor_width"], DIMS["joy_size"]).pack(side="left")
+        #左摇杆
         self.joy1 = JoystickWidget(middle, DIMS["joy_size"], "LOCOMOTION", COLORS["accent"])
         self.joy1.pack(side="left", padx=5)
-        
-        self._setup_dashboard(middle) # 仪表盘
-        
+        #中间的仪表盘，显示摇杆数值之类的
+        self._setup_dashboard(middle) 
+        #右摇杆
         self.joy2 = JoystickWidget(middle, DIMS["joy_size"], "ATTITUDE", COLORS["sec_joy"])
         self.joy2.pack(side="left", padx=5)
         DecorPanel(middle, "right",DIMS["decor_width"] ,DIMS["joy_size"]).pack(side="left")
@@ -299,7 +300,6 @@ class MainView:
         tcp_sub.pack(side="left", padx=10)
         ttk.Label(tcp_sub, text="NET>", font=("Consolas", 9), foreground="gray").pack(side="left")
         
-        from config import TCP_CONFIG # 延迟导入，防止循环引用
         self.entry_ip = ttk.Entry(tcp_sub, width=14, font=("Consolas", 10)) # IP 输入框
         self.entry_ip.insert(0, TCP_CONFIG["default_ip"]) # 填充默认 IP
         self.entry_ip.pack(side="left", padx=2)
@@ -356,18 +356,42 @@ class MainView:
         self.btn_zero_down.pack(side="top", pady=2)
 
     def _setup_log_area(self, parent):
-        """底部的系统运行日志终端"""
+        """
+        底部的系统运行日志终端 + 云台控制区
+        """
         container = ttk.Frame(parent, padding=(10, 10))
         container.pack(fill="both", expand=True)
-        # 日志区域抬头
-        ttk.Label(container, text="NEURAL LINK LOG // RX_DATA_STREAM", 
+
+        # A. 左侧面板：日志区 (使用 expand=True 让它占据剩余空间)
+        left_panel = ttk.Frame(container)
+        left_panel.pack(side="left", fill="both", expand=True)
+
+        # 日志区域标签
+        ttk.Label(left_panel, text="NEURAL LINK LOG // RX_DATA_STREAM", 
                   font=("Consolas", 9), foreground=COLORS["main"]).pack(anchor="w")
         
         # 滚动文本框：显示接收到的原始指令或系统状态
-        self.console = ScrolledText(container, font=("Consolas", 10), bootstyle="secondary", height=5)
+        self.console = ScrolledText(left_panel, font=("Consolas", 10), bootstyle="secondary", height=5)
         self.console.pack(fill="both", expand=True)
         # 定制控制台背景色（深墨绿黑）和文字颜色（电网绿）
         self.console.text.configure(bg="#020a0a", fg=COLORS["text_log"], insertbackground="white")
+
+
+
+        # B. 右侧面板：云台控制区 (固定宽度，靠右)
+        right_panel = ttk.Frame(container)
+        right_panel.pack(side="right", fill="y", padx=(10, 0)) # padx 左边留点空隙隔开日志
+
+        # === 2. 新增云台摇杆代码 (放入 right_panel) ===
+        # 云台区域标签，和摇杆处于同一容器
+        ttk.Label(right_panel, text="GIMBAL // MANUAL_OVERRIDE", 
+                  font=("Consolas", 9), foreground=COLORS["alert"]).pack(anchor="w")
+        
+        self.joy_gimbal = JoystickWidget(right_panel, size=120, label="PAN/TILT", color_theme=COLORS["alert"])
+        self.joy_gimbal.pack(side="top", pady=5) 
+
+
+
 
         
 

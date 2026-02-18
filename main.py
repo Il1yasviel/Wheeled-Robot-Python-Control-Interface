@@ -5,12 +5,14 @@ import tkinter as tk
 import ttkbootstrap as ttk
 # 导入数学计算、时间处理和日期处理库
 import math, time, datetime
+import time
+
 # 从自定义配置文件中导入颜色、尺寸和参数常量
-from config import COLORS, DIMS, PARAMS
+from config import COLORS, DIMS, PARAMS,UDP_CONFIG
 # 从自定义视图模块导入主视图界面类
 from view import MainView
 # 从自定义通信模块导入混合通信服务类（支持串口和网络）
-from comms import HybridService
+from comms import HybridService,GimbalUDPService
 #导入视频相关的
 from vision_service import VisionService 
 # 导入新写的服务
@@ -23,10 +25,20 @@ class Controller:
         self.root = ttk.Window(themename="cyborg")
         # 实例化视图类，并将窗口对象和关闭回调函数传入
         self.view = MainView(self.root, self.close_app)
-        # 实例化通信服务类，并传入日志记录函数以便在界面显示信息
+        # 实例化通信服务类(串口和TCP的对象)，并传入日志记录函数以便在界面显示信息
         self.comms = HybridService(self.log_msg)
+
         self.is_drawing = False         # 1. 增加一个锁标记，来不及处理的图片就直接丢掉，否则会变得越来越卡
-        
+
+
+        # 实例化云台服务
+        self.gimbal_service = GimbalUDPService(UDP_CONFIG["RK3506_ip"], UDP_CONFIG["RK3506_UDP_port"])
+        # === 新增：云台控制相关变量 ===
+        self.val_pan = 90  # 左右舵机默认角度
+        self.val_tilt = 90 # 上下舵机默认角度
+        self.joy_gimbal_dragging = False # 云台摇杆是否被拖动标志
+
+
         # --- 运动状态变量 (核心状态) ---
         self.val_m = 0      # 存储当前的前进/后退速度 (Movement)
         self.val_t = 0      # 存储当前的左右转向值 (Turnment)
@@ -81,8 +93,8 @@ class Controller:
 
 
         # 开发板 IP 是这个，端口是 8888
-        target_ip = "192.168.10.114" 
-        target_port = 8888
+        target_ip = UDP_CONFIG["RK3506_ip"] 
+        target_port = UDP_CONFIG["RK3506_sensor_port"]
         
         self.sensor_thread = SensorService(target_ip, target_port, self.update_sensor_ui)
         self.sensor_thread.daemon = True # 守护线程，主程序关了它也关
@@ -218,7 +230,7 @@ class Controller:
         
         # 使用勾股定理计算当前偏移的距离
         dist = math.sqrt(tx*tx + ty*ty)
-        # 如果偏移超出了摇杆圆圈半径，则进行等比例缩放（限幅）
+        # 如果偏移超出了摇杆圆圈半径，则进行等a比例缩放（限幅）
         if dist > r:
             tx = tx * r / dist
             ty = ty * r / dist
@@ -260,6 +272,21 @@ class Controller:
         # 绑定虚拟摇杆 2 的鼠标交互
         self.view.joy2.tag_bind(self.view.joy2.knob, "<B1-Motion>", self.on_drag_joy2)
         self.view.joy2.tag_bind(self.view.joy2.knob, "<ButtonRelease-1>", self.on_release_joy2)
+
+
+
+        # === 新增：云台摇杆 (joy_gimbal) 事件绑定 ===
+        
+        # 1. 绑定拖动事件：计算角度并发送 UDP
+        # tag_bind 绑定到 knob (摇杆头) 上，这样只有拖动圆点才生效
+        self.view.joy_gimbal.tag_bind(self.view.joy_gimbal.knob, "<B1-Motion>", self.on_gimbal_drag)
+        
+        # 2. 绑定松开事件：自动回中
+        self.view.joy_gimbal.tag_bind(self.view.joy_gimbal.knob, "<ButtonRelease-1>", self.on_gimbal_release)
+        
+        # 3. 绑定点击事件：(可选) 用于标记正在交互状态，防止和其他逻辑冲突
+        self.view.joy_gimbal.tag_bind(self.view.joy_gimbal.knob, "<Button-1>", lambda e: setattr(self, 'gimbal_active', True))
+
 
 
     # 构建并发送数据包函数
@@ -325,7 +352,113 @@ class Controller:
         c = DIMS["joy_size"] // 2
         self.view.joy1.update_position(c, c)
 
-    # 处理摇杆 1 的拖动逻辑（鼠标控制）
+
+
+
+
+
+
+    #云台摇杆绑定了事件，然后事件触发后所执行的函数
+    def on_gimbal_drag(self, event):
+        """处理云台摇杆拖动"""
+        self.gimbal_active = True
+        
+        # 1. 获取对象和参数
+        joy = self.view.joy_gimbal
+        center = joy.size // 2
+        radius = joy.radius # 摇杆活动半径
+        
+        # 2. 计算鼠标相对于圆心的偏移
+        dx = event.x - center
+        dy = event.y - center
+        distance = (dx**2 + dy**2) ** 0.5
+        
+        # 3. 圆形限制 (如果拖出圆外，强制拉回圆边缘)
+        if distance > radius:
+            scale = radius / distance
+            dx *= scale
+            dy *= scale
+            
+        # 4. 更新 UI 显示 (让摇杆帽动起来)
+        joy.update_position(center + dx, center + dy)
+        
+        # 5. 计算物理角度 (映射到舵机角度)
+        # 假设：
+        # Pan (左右): 0度(最右) ~ 180度(最左), 90度居中
+        # Tilt (上下): 70度(低头) ~ 110度(抬头), 90度居中
+        
+        # dx 范围 -radius ~ +radius -> 映射到 +90 ~ -90 偏移
+        pan_angle = int(90 - (dx / radius) * 90)
+        
+        # dy 范围 -radius ~ +radius -> 映射到 +20 ~ -20 偏移 (总摆幅40度)
+        tilt_angle = int(90 - (dy / radius) * 20)
+        
+        # 6. 安全限幅
+        pan_angle = max(0, min(180, pan_angle))
+        tilt_angle = max(70, min(110, tilt_angle))
+        
+        # 7. 发送 UDP 指令
+        # 假设你已经初始化了 self.udp_sock 和 self.gimbal_addr
+        self.send_gimbal_udp(pan_angle, tilt_angle)
+
+    #云台摇杆绑定了事件，然后事件触发后所执行的函数
+    def on_gimbal_release(self, event):
+        """松开摇杆，自动回中"""
+        self.gimbal_active = False
+        
+        # UI 回中
+        c = self.view.joy_gimbal.size // 2
+        self.view.joy_gimbal.update_position(c, c)
+        
+        # 发送回中指令 (90, 90)
+        self.send_gimbal_udp(90, 90)
+
+    #云台摇杆绑定了事件，然后事件触发后所执行的函数
+    def send_gimbal_udp(self, p, t):
+            """
+            发送函数封装：主程序只负责传参数，具体的脏活累活交给 service
+            """
+            # 1. 简单的数据限幅 (业务逻辑留在主程序里比较好)
+            p = max(0, min(180, p))
+            t = max(70, min(110, t))
+            
+            # 2. 【核心修改】直接调用对象的 send_angle 方法
+            # 不再去碰 socket，也不用管 encode，service 会处理好
+            if self.gimbal_service:
+                self.gimbal_service.send_angle(p, t)
+
+            # 3. 【新增】在控制台打印日志
+            # 为了防止日志刷太快卡死界面，我们加一个简单的限流：
+            # 只有当 current_time - last_log_time > 0.1秒 时才打印
+            
+            current_time = time.time()
+            # 如果 self 里没有 last_gimbal_log_time 这个变量，先初始化它
+            if not hasattr(self, 'last_gimbal_log_time'):
+                self.last_gimbal_log_time = 0
+
+            # 每 0.1 秒打印一次 (频率 10Hz)
+            if current_time - self.last_gimbal_log_time > 0.1:
+                # 格式化日志内容：时间 + 数据
+                # 例如: [10:25:30] TX_GIMBAL >> P:090 T:090
+                time_str = time.strftime("%H:%M:%S", time.localtime())
+                log_msg = f"[{time_str}] TX_GIMBAL >> P:{p:03d} T:{t:03d}\n"
+                
+                # 写入日志窗口 (self.console 是你在 _setup_log_area 定义的)
+                self.view.console.insert("end", log_msg)
+                
+                # 自动滚动到底部 (让最新日志可见)
+                self.view.console.see("end")
+                
+                # 更新上次打印时间
+                self.last_gimbal_log_time = current_time
+
+
+
+
+
+
+
+    # 处理摇杆 1 的拖动事件的触发函数的逻辑（鼠标控制）
     def on_drag_joy1(self, event):
         self.joy1_dragging = True
         c, r = DIMS["joy_size"] // 2, DIMS["joy_radius"]
@@ -372,7 +505,7 @@ class Controller:
             self.update_joy2_ui_position()
             self.send_update_packet(force=True)
 
-    # 处理摇杆 2 的拖动逻辑（鼠标控制高度和翻滚）
+    # 处理摇杆 2 的拖动事件的触发函数的逻辑（鼠标控制高度和翻滚）
     def on_drag_joy2(self, event):
         self.joy2_dragging = True
         c, r = DIMS["joy_size"] // 2, DIMS["joy_radius"]
@@ -446,15 +579,23 @@ class Controller:
                 # 网络模式：获取 IP 和端口
                 ip = self.view.entry_ip.get().strip()
                 port = self.view.entry_port.get().strip()
-                target = f"{ip}:{port}"
+
+                #存储ip地址和端口
+                target = f"{ip}:{port}"  
+
                 active_btn = self.view.btn_tcp_connect
                 success_text = "LINKED"
 
             # 如果没有输入地址则返回
             if not target or target == ":": return
             
+
+
             # 调用底层通信接口连接
             success, msg = self.comms.connect(target)
+
+
+
             if success:
                 # 连接成功：改变按钮颜色（变红）和文字
                 active_btn.config(text=success_text, bootstyle="danger")
