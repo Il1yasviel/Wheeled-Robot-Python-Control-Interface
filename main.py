@@ -187,11 +187,11 @@ class Controller:
             if abs(error_x) < 30: error_x = 0
             if abs(error_y) < 30: error_y = 0
             
-            Kp_pan = 0.03
-            Kp_tilt = 0.03
+            Kp_pan = 0.01
+            Kp_tilt = 0.01
             
             # 计算新角度
-            self.current_pan += error_x * Kp_pan
+            self.current_pan -= error_x * Kp_pan
             self.current_tilt += error_y * Kp_tilt
             
             # 限制范围

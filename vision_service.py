@@ -25,7 +25,7 @@ class VisionService(threading.Thread):
         print("[VISION] 正在加载 YOLO 识别模型，请稍候...")
         try:
             # 加载预训练模型文件 (yolov8n.pt 是轻量化版本，适合实时推理)
-            self.model = YOLO('./YOLOV8_recognition/model/yolov8n.pt').to('cuda')
+            self.model = YOLO('./YOLOV8_recognition/model/hand_numbers.pt').to('cuda')
             
             # 性能优化：尝试将模型移动到 GPU (CUDA) 运行
             # 如果你的电脑没配置好 CUDA 环境，这行代码会自动降级到 CPU 运行
@@ -69,7 +69,7 @@ class VisionService(threading.Thread):
                     # conf: 置信度阈值，0.5 表示识别概率大于 50% 才会显示结果
                     # classes: 类别过滤，[0] 通常在官方模型里代表 "Person" (人)
                     # verbose=False: 关闭 YOLO 在控制台的每一帧输出，保持终端整洁
-                    results = self.model.predict(source=frame, save=False, conf=0.5, classes=[0], verbose=False)
+                    results = self.model.predict(source=frame, save=False, conf=0.5, verbose=False)
                     
                     # 使用 results[0].plot() 将检测到的红框、标签直接画在图像上
                     # 它返回的也是 BGR 格式的图像数据
@@ -94,6 +94,17 @@ class VisionService(threading.Thread):
                         # 把坐标和画面尺寸打包，准备发给外面的云台追踪算法
                         target_info = (cx, cy, frame_w, frame_h)
                     # =======================================================
+
+                        #获取识别到的手势名字/数字
+                        # cls_id 是类别的数字索引，比如 0, 1, 2
+                        cls_id = int(box.cls[0].item())
+                        # names 是模型自带的字典，比如 {0: 'One', 1: 'Two'}
+                        gesture_name = results[0].names[cls_id]
+                        
+                        # 你可以把 gesture_name 打印出来，或者传给 UI 显示！
+                        print(f"识别到手势: {gesture_name}")
+
+
 
 
                 else:
