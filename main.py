@@ -31,6 +31,13 @@ class Controller:
         self.is_drawing = False         # 1. 增加一个锁标记，来不及处理的图片就直接丢掉，否则会变得越来越卡
 
 
+        # 1. 初始化逻辑控制变量，控制云台摇杆是否生效，为了实现自动化和手动控制不冲突
+        self.gimbal_override_enabled = False 
+
+        #舵机角度的全局变量
+        self.current_pan = 90
+        self.current_tilt = 90
+
         # 实例化云台服务
         self.gimbal_service = GimbalUDPService(UDP_CONFIG["RK3506_ip"], UDP_CONFIG["RK3506_UDP_port"])
         # === 新增：云台控制相关变量 ===
@@ -160,12 +167,41 @@ class Controller:
     # ============================================================
     # ★ 新增：视觉回调函数 (这是桥梁)
     # ============================================================
-    def update_vision_ui(self, frame, fps_text):
+    def update_vision_ui(self, frame, fps_text,target_info):
         """
         这个函数由 VisionService (子线程) 每帧调用一次。
-        千万注意：Tkinter 不允许子线程直接修改 UI。
+        Tkinter 不允许子线程直接修改 UI。
         必须使用 root.after(0, func) 将任务扔回主线程执行。
         """
+
+        # ========================================================
+        # 1. 自动追踪逻辑 (放在这里，保证就算 UI 卡顿掉帧，追踪也不会停！)
+        # ========================================================
+        if not self.gimbal_override_enabled and target_info is not None:
+            cx, cy, frame_w, frame_h = target_info
+            
+            error_x = cx - (frame_w / 2.0)
+            error_y = cy - (frame_h / 2.0)
+            
+            # 死区保护
+            if abs(error_x) < 30: error_x = 0
+            if abs(error_y) < 30: error_y = 0
+            
+            Kp_pan = 0.03
+            Kp_tilt = 0.03
+            
+            # 计算新角度
+            self.current_pan += error_x * Kp_pan
+            self.current_tilt += error_y * Kp_tilt
+            
+            # 限制范围
+            self.current_pan = max(0, min(180, self.current_pan))
+            self.current_tilt = max(0, min(150, self.current_tilt))
+            
+            # 立即发送 UDP 控制硬件 (网络发送很快，不影响子线程)
+            self.send_gimbal_udp(int(self.current_pan), int(self.current_tilt))
+
+
         if self.view:
             # 2. 核心逻辑：如果当前界面正在画上一帧，直接丢弃这一帧，不要去排队！
             if self.is_drawing:
@@ -287,6 +323,10 @@ class Controller:
         # 3. 绑定点击事件：(可选) 用于标记正在交互状态，防止和其他逻辑冲突
         self.view.joy_gimbal.tag_bind(self.view.joy_gimbal.knob, "<Button-1>", lambda e: setattr(self, 'gimbal_active', True))
 
+        # 4.绑定云台按钮点击事件
+        self.view.btn_gimbal_override.config(command=self.toggle_gimbal_override)
+
+      
 
 
     # 构建并发送数据包函数
@@ -355,12 +395,32 @@ class Controller:
 
 
 
+    def toggle_gimbal_override(self):
+        """逻辑：切换云台手动控制状态，并更新 UI"""
+        self.gimbal_override_enabled = not self.gimbal_override_enabled
+        
+        if self.gimbal_override_enabled:
+            self.view.btn_gimbal_override.config(text="MANUAL: TRUE (ON)")
+        else:
+            self.view.btn_gimbal_override.config(text="MANUAL: FALSE (OFF)")
+            
+            # 关闭时，为了安全，强制让界面上的摇杆回中
+            c = self.view.joy_gimbal.size // 2
+            self.view.joy_gimbal.update_position(c, c)
+            # 可选：发送一次回中指令给底层
+            # self.send_gimbal_udp(90, 90)
 
 
 
-    #云台摇杆绑定了事件，然后事件触发后所执行的函数
+
+
+    #云台摇杆绑定了事件，然后事件触发后所执行的函数，用于UDP发送数据
     def on_gimbal_drag(self, event):
         """处理云台摇杆拖动"""
+        # 【核心拦截】如果变量为 False，直接退出，摇杆纹丝不动
+        if not self.gimbal_override_enabled:
+            return 
+
         self.gimbal_active = True
         
         # 1. 获取对象和参数
@@ -391,36 +451,55 @@ class Controller:
         pan_angle = int(90 - (dx / radius) * 90)
         
         # dy 范围 -radius ~ +radius -> 映射到 +20 ~ -20 偏移 (总摆幅40度)
-        tilt_angle = int(90 - (dy / radius) * 20)
+        tilt_angle = int(90 + (dy / radius) * 90)
         
         # 6. 安全限幅
         pan_angle = max(0, min(180, pan_angle))
-        tilt_angle = max(70, min(110, tilt_angle))
+        tilt_angle = max(0, min(150, tilt_angle))
+
+        #更新全局舵机角度变量
+        self.current_pan = float(pan_angle)
+        self.current_tilt = float(tilt_angle)
+
         
         # 7. 发送 UDP 指令
-        # 假设你已经初始化了 self.udp_sock 和 self.gimbal_addr
-        self.send_gimbal_udp(pan_angle, tilt_angle)
+        self.send_gimbal_udp(self.current_pan, self.current_tilt)
 
-    #云台摇杆绑定了事件，然后事件触发后所执行的函数
+    #云台摇杆绑定了事件，然后事件触发后所执行的函数，用于UDP发送数据
     def on_gimbal_release(self, event):
         """松开摇杆，自动回中"""
+
+        # 【核心拦截】如果变量为 False，直接退出
+        if not self.gimbal_override_enabled:
+            return 
+
+
         self.gimbal_active = False
         
         # UI 回中
         c = self.view.joy_gimbal.size // 2
         self.view.joy_gimbal.update_position(c, c)
         
+        # === 【核心同步】物理云台回中，全局变量也必须同步重置为 90 ===
+        self.current_pan = 90.0
+        self.current_tilt = 90.0
+
         # 发送回中指令 (90, 90)
         self.send_gimbal_udp(90, 90)
 
-    #云台摇杆绑定了事件，然后事件触发后所执行的函数
+    #云台摇杆绑定了事件，然后事件触发后所执行的函数，用于打印日志
     def send_gimbal_udp(self, p, t):
             """
             发送函数封装：主程序只负责传参数，具体的脏活累活交给 service
             """
+
+            # === 【新增】强制转换为整数，防止 float 类型导致日志或 socket 崩溃 ===
+            p = int(p)
+            t = int(t)
+
             # 1. 简单的数据限幅 (业务逻辑留在主程序里比较好)
             p = max(0, min(180, p))
-            t = max(70, min(110, t))
+            t = max(0, min(150, t))
             
             # 2. 【核心修改】直接调用对象的 send_angle 方法
             # 不再去碰 socket，也不用管 encode，service 会处理好

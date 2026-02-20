@@ -392,6 +392,17 @@ class MainView:
 
 
 
+        # === 【新增】控制开关变量与按钮 ===
+        # 1. 初始化一个变量，默认设为 False (不生效)
+        self.gimbal_override_enabled = False 
+        
+        # 2. 创建一个按钮
+        self.btn_gimbal_override = ttk.Button(
+            right_panel, 
+            text="MANUAL: FALSE", 
+        )
+        self.btn_gimbal_override.pack(side="top", pady=5, fill="x")
+
 
         
 

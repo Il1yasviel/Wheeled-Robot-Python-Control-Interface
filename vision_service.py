@@ -61,6 +61,7 @@ class VisionService(threading.Thread):
             if success:
                 # --- [情况 A] 图像抓取成功 ---
                 final_frame = None  # 最终要显示的图像变量
+                target_info = None  # === 【新增】用于存放提取出来的目标坐标 ===
                 
                 # 3. 执行 YOLO 目标检测
                 if self.model:
@@ -73,6 +74,28 @@ class VisionService(threading.Thread):
                     # 使用 results[0].plot() 将检测到的红框、标签直接画在图像上
                     # 它返回的也是 BGR 格式的图像数据
                     final_frame = results[0].plot()
+
+                    # =======================================================
+                    # ★★★ 【核心修改区】：提取人物的中心点坐标 ★★★
+                    # =======================================================
+                    boxes = results[0].boxes  # 获取所有的检测框
+                    if len(boxes) > 0:
+                        # 如果画面里有多个人，暂时只拿第一个（置信度最高）的人
+                        box = boxes[0]
+                        
+                        # YOLO 提供了 xywh 格式的数据：
+                        # cx = 中心点X, cy = 中心点Y, w = 框宽, h = 框高
+                        # .cpu().numpy() 是把显卡里的 tensor 数据拉回到普通内存变成数字
+                        cx, cy, w, h = box.xywh[0].cpu().numpy()
+                        
+                        # 获取这帧画面的总高度和总宽度
+                        frame_h, frame_w = frame.shape[:2]
+                        
+                        # 把坐标和画面尺寸打包，准备发给外面的云台追踪算法
+                        target_info = (cx, cy, frame_w, frame_h)
+                    # =======================================================
+
+
                 else:
                     # 如果模型加载失败，则直接使用原始画面，不进行识别
                     final_frame = frame
@@ -87,7 +110,8 @@ class VisionService(threading.Thread):
                 
                 # 5. 通过回调函数，将处理好的【图像数据】和【FPS文字】推送给 Controller，再转交给 View
                 if self.callback:
-                    self.callback(final_frame, fps_text)
+                    # === 【核心修改】：在原来两个参数的基础上，加上第三个参数 target_info ===
+                    self.callback(final_frame, fps_text, target_info)
 
             else:
                 # --- [情况 B] 图像抓取失败 (通常是网络断了或摄像头掉线) ---
