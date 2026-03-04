@@ -161,6 +161,28 @@ class MainView:
         self.fps_label = tk.Label(header, text="STANDBY", fg="gray", bg="black", font=("Consolas", 10))
         self.fps_label.pack(side="right", padx=10)
 
+        # =========================================================
+        # ★ 核心修改 2：在视频下方新建 AI 对话区域
+        # =========================================================
+        self.chat_frame = tk.Frame(parent, bg="#080808", height=180) # 固定高度 180
+        self.chat_frame.pack(side="bottom", fill="x", padx=5, pady=(0, 5))
+        self.chat_frame.pack_propagate(False) # 强制固定高度，不被内部组件撑开
+
+        # 对话框标题
+        tk.Label(self.chat_frame, text="/// AI COMM LINK // NEURAL DIALOGUE", 
+                 fg=COLORS["eva_red"], bg="#080808", font=("Consolas", 10, "bold")).pack(anchor="w", padx=5)
+
+        # 滚动对话文本框
+        self.chat_console = ScrolledText(self.chat_frame, font=("Microsoft YaHei", 10), bootstyle="secondary")
+        self.chat_console.pack(fill="both", expand=True, padx=5, pady=2)
+        # 设置深色背景和默认文字颜色
+        self.chat_console.text.configure(bg="#020a0a", fg="#00FF00", insertbackground="white")
+        
+        # 定义不同角色的颜色标签，方便显示不同的颜色
+        self.chat_console.text.tag_config("user", foreground="#00FFFF") # 玩家发出的文字是青色
+        self.chat_console.text.tag_config("ai", foreground="#33FF33")   # AI 的文字是亮绿色
+        self.chat_console.text.tag_config("system", foreground="gray")  # 系统提示是灰色
+
         # ★ 核心画布：Canvas
         # 使用 Canvas 而不是 Label，因为 Canvas 缩放性能更好，且方便后续画覆盖层（准星等）
         self.video_canvas = tk.Canvas(parent, bg="#020202", highlightthickness=0)
@@ -170,6 +192,24 @@ class MainView:
         w = 640; h = 480
         self.video_canvas.create_text(w/2, h/2, text="WAITING FOR SIGNAL...", 
                                       fill="gray", font=("Impact", 20), tags="status_text")
+        
+
+
+    # =========================================================
+    # ★ 新增方法：供主程序调用，向聊天框追加文字
+    # =========================================================
+    def append_chat(self, role, text, end=""):
+        """向 AI 聊天框追加文字"""
+        # 根据角色选择颜色标签
+        tag = "system"
+        if role == "User": tag = "user"
+        elif role == "AI": tag = "ai"
+
+        # 插入文字并应用颜色标签
+        self.chat_console.text.insert(tk.END, text + end, tag)
+        self.chat_console.text.see(tk.END) # 自动滚动到底部
+
+
 
 
 

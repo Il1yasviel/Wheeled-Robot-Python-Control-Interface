@@ -3,6 +3,8 @@ import cv2
 import time
 import threading
 from ultralytics import YOLO
+import os
+import glob
 
 class VisionService(threading.Thread):
     def __init__(self, stream_url, callback_func):
@@ -20,6 +22,12 @@ class VisionService(threading.Thread):
         self.callback = callback_func
         # 线程运行状态控制位，设置为 True 时循环开始，False 时循环停止
         self.running = False 
+        # ==========================================
+        # ★ 新增：创建视觉记忆缓存目录
+        # ==========================================
+        self.vision_dir = "vision_memory"
+        os.makedirs(self.vision_dir, exist_ok=True)
+        self.last_save_time = 0 # 控制截图频率
         
         # --- YOLO 深度学习模型初始化 ---
         print("[VISION] 正在加载 YOLO 识别模型，请稍候...")
@@ -63,6 +71,23 @@ class VisionService(threading.Thread):
                 final_frame = None  # 最终要显示的图像变量
                 target_info = None  # === 【新增】用于存放提取出来的目标坐标 ===
                 
+                
+                # ==========================================
+                # ★ 新增：每秒保存 1 张图，最多保留最新的 10 张
+                # ==========================================
+                current_time = time.time()
+                if current_time - self.last_save_time >= 1.0: # 1秒截一张
+                    filepath = os.path.join(self.vision_dir, f"frame_{current_time:.2f}.jpg")
+                    cv2.imwrite(filepath, frame) # 保存当前原始画面
+                    self.last_save_time = current_time
+                    
+                    # 清理旧图片，只保留最新10张
+                    files = sorted(glob.glob(os.path.join(self.vision_dir, "*.jpg")), key=os.path.getmtime)
+                    while len(files) > 10:
+                        os.remove(files.pop(0)) # 删掉最旧的
+                # ==========================================
+
+
                 # 3. 执行 YOLO 目标检测
                 if self.model:
                     # source: 待检测的图像

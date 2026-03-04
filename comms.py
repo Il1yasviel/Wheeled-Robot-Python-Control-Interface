@@ -79,7 +79,7 @@ class SerialService:
             time.sleep(0.01)
 
 # 定义 TCP 网络服务类
-class TCPService:
+"""class TCPService:
     def __init__(self, log_callback=None):
         # 初始化客户端套接字为 None
         self.client = None
@@ -152,6 +152,72 @@ class TCPService:
                 pass
             # 每次读取后休眠 100 毫秒，降低资源消耗
             time.sleep(0.1)
+"""
+
+# 将原先的 TCPService 替换为 UDPService
+class UDPService:
+    def __init__(self, log_callback=None):
+        self.client = None
+        self.is_connected = False
+        self.log_callback = log_callback
+
+    def connect(self, ip, port):
+        try:
+            # 【核心修改 1】使用 SOCK_DGRAM 表示这是一个 UDP 套接字
+            self.client = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            
+            # 【核心修改 2】删除了 TCP_NODELAY（Nagle算法），因为 UDP 不需要这个
+            
+            # 【核心重点】既然 UDP 是无连接的，为什么还要调用 connect？
+            # 在 Python 里，对 UDP socket 调用 connect 并不会真的去网络上握手！
+            # 它只是在本地操作系统里“记住”了这个目标 IP 和端口。
+            # 这样一来，我们后面就可以继续沿用 TCP 的 send() 和 recv() 方法，
+            # 而不需要改用麻烦的 sendto() 和 recvfrom()。
+            self.client.connect((str(ip), int(port)))
+            
+            self.is_connected = True
+            # 设置接收数据的超时时间为 0.1 秒
+            self.client.settimeout(0.1)
+            
+            # 启动后台读取线程
+            threading.Thread(target=self._read_loop, daemon=True).start()
+            return True, "UDP OK"
+        except Exception as e:
+            return False, str(e)
+
+    def disconnect(self):
+        self.is_connected = False
+        if self.client:
+            try: 
+                self.client.close()
+            except: 
+                pass
+        return "UDP CLOSED"
+
+    def send(self, data_str):
+        if self.is_connected and self.client:
+            try:
+                # 发送字符串（因为上面 connect 锁定了地址，这里可以直接用 send）
+                self.client.send(data_str.encode('utf-8'))
+            except OSError as e:
+                print(f"UDP Error: {e}")
+                self.is_connected = False
+                self.disconnect()
+
+    def _read_loop(self):
+        while self.is_connected:
+            try:
+                # 接收小车回传的数据
+                data = self.client.recv(1024).decode('utf-8', errors='ignore')
+                if data and self.log_callback:
+                    self.log_callback(f"[UDP] {data}")
+            except socket.timeout:
+                # UDP 超时很正常，直接忽略即可
+                pass
+            except Exception as e: 
+                pass
+            time.sleep(0.01)
+
 
 
 
@@ -190,12 +256,12 @@ class HybridService:
         # 实例化内部的串口服务
         self.serial = SerialService(log_callback)
         # 实例化内部的 TCP 服务
-        self.tcp = TCPService(log_callback)
+        self.net_service = UDPService(log_callback) 
 
     @property
     def is_connected(self):
         # 这是一个属性方法：只要串口或 TCP 有一个连着，就认为整体是连接状态
-        return self.serial.is_connected or self.tcp.is_connected
+        return self.serial.is_connected or self.net_service.is_connected
 
     def get_ports(self):
         # 获取所有物理串口列表
@@ -212,7 +278,7 @@ class HybridService:
                 # 以冒号分割出 IP 地址和端口号
                 ip, port = target.split(":")
                 # 调用 TCP 连接方法
-                return self.tcp.connect(ip.strip(), port.strip())
+                return self.net_service.connect(ip.strip(), port.strip())
             except: 
                 # 格式不对返回错误
                 return False, "Format Error"
@@ -223,7 +289,7 @@ class HybridService:
     def disconnect(self):
         # 同时断开串口和 TCP 连接
         self.serial.disconnect()
-        self.tcp.disconnect()
+        self.net_service.disconnect()
         # 返回关闭状态
         return "CLOSED"
 
@@ -231,4 +297,4 @@ class HybridService:
         # 如果串口已连，向串口发送一份数据
         if self.serial.is_connected: self.serial.send(data_str)
         # 如果 TCP 已连，向网络发送一份数据
-        if self.tcp.is_connected: self.tcp.send(data_str)
+        if self.net_service.is_connected: self.net_service.send(data_str)
