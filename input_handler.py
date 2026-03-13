@@ -39,16 +39,16 @@ class InputHandler:
         joy_gimbal.tag_bind(joy_gimbal.knob, "<Button-1>", lambda e: setattr(self.app, 'gimbal_active', True))
 
     # ============================================================
-    # ★ 键盘控制逻辑
+    # 键盘控制逻辑
     # ============================================================
     def calc_speed_from_keys(self):
         tx, ty = 0, 0
         r = DIMS["joy_radius"]
         
-        if self.app.keys_move['w']: ty -= r * 0.2 
-        if self.app.keys_move['s']: ty += r * 0.2
-        if self.app.keys_move['a']: tx -= r * 1.0
-        if self.app.keys_move['d']: tx += r * 1.0
+        if self.app.keys_move['w']: ty -= r * 1.0
+        if self.app.keys_move['s']: ty += r * 1.0
+        if self.app.keys_move['a']: tx -= r * 0.9
+        if self.app.keys_move['d']: tx += r * 0.9
         
         dist = math.sqrt(tx*tx + ty*ty)
         if dist > r:
@@ -98,9 +98,9 @@ class InputHandler:
                 self.app.keys_pose[k] = True
                 self.step_pose_value(k)
         elif key == 'i':
-            self.app.adjust_zero(-0.5)
+            self.app.adjust_zero(-0.1)
         elif key == 'k':
-            self.app.adjust_zero(0.5)
+            self.app.adjust_zero(0.1)
 
     def on_key_release(self, event):
         key = event.keysym.lower()

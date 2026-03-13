@@ -57,7 +57,7 @@ class AIBridgeService:
                 if not chunk: break # 当客户端调用 shutdown(SHUT_WR) 时，这里会收到空字节并跳出
                 audio_bytes += chunk
             
-            # ⚠️ 注意：这里千万不要 client_sock.close()，因为我们还要用它把声音发回去！
+            # 注意：这里千万不要 client_sock.close()，因为我们还要用它把声音发回去！
 
             if len(audio_bytes) < 100: 
                 client_sock.close()

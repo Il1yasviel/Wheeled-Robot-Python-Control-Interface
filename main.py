@@ -234,8 +234,23 @@ class Controller:
             self.last_gimbal_log_time = current_time
 
     def log_msg(self, text):
-        """将日志消息显示在 UI 界面上"""
+        """
+        所有来自串口、UDP 或系统的原始调试消息，都会流经这里。
+        """
+        # 获取当前时间戳
         ts = datetime.datetime.now().strftime("%H:%M:%S")
+        
+        # 1. 如果你想针对特定数据（如速度）做特殊格式化，但依然打印在左侧：
+        if "CAR_SPD:" in text:
+            try:
+                speed_val = text.split("CAR_SPD:")[1].strip()
+                # 依然调用 self.view.log，这样它就会出现在左侧控制台
+                self.root.after(0, lambda: self.view.log(f"[{ts}] [TELEMETRY] Speed: {speed_val} mm/s"))
+                return 
+            except:
+                pass
+
+        # 2. 默认逻辑：直接将所有原始信息打印在左侧控制台
         self.root.after(0, lambda: self.view.log(f"[{ts}] {text}"))
 
     # ============================================================

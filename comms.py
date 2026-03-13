@@ -155,33 +155,33 @@ class SerialService:
 """
 
 # 将原先的 TCPService 替换为 UDPService
+# 将原先的 TCPService 替换为 UDPService
 class UDPService:
     def __init__(self, log_callback=None):
         self.client = None
         self.is_connected = False
         self.log_callback = log_callback
+        self.target_addr = None # 专门记录小车的 IP 和端口
 
     def connect(self, ip, port):
         try:
-            # 【核心修改 1】使用 SOCK_DGRAM 表示这是一个 UDP 套接字
             self.client = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             
-            # 【核心修改 2】删除了 TCP_NODELAY（Nagle算法），因为 UDP 不需要这个
+            # 允许端口复用
+            self.client.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             
-            # 【核心重点】既然 UDP 是无连接的，为什么还要调用 connect？
-            # 在 Python 里，对 UDP socket 调用 connect 并不会真的去网络上握手！
-            # 它只是在本地操作系统里“记住”了这个目标 IP 和端口。
-            # 这样一来，我们后面就可以继续沿用 TCP 的 send() 和 recv() 方法，
-            # 而不需要改用麻烦的 sendto() 和 recvfrom()。
-            self.client.connect((str(ip), int(port)))
+            # 【核心修改 1】：只绑定本地 8080 端口，绝不调用 connect！
+            # 这样就能接收来自任何源端口的小车数据！
+            self.client.bind(('0.0.0.0', 8080)) 
+            
+            # 记录下你要发往的小车地址
+            self.target_addr = (str(ip), int(port))
             
             self.is_connected = True
-            # 设置接收数据的超时时间为 0.1 秒
             self.client.settimeout(0.1)
             
-            # 启动后台读取线程
             threading.Thread(target=self._read_loop, daemon=True).start()
-            return True, "UDP OK"
+            return True, "UDP OK (Listening on 8080)"
         except Exception as e:
             return False, str(e)
 
@@ -195,10 +195,10 @@ class UDPService:
         return "UDP CLOSED"
 
     def send(self, data_str):
-        if self.is_connected and self.client:
+        if self.is_connected and self.client and self.target_addr:
             try:
-                # 发送字符串（因为上面 connect 锁定了地址，这里可以直接用 send）
-                self.client.send(data_str.encode('utf-8'))
+                # 【核心修改 2】：因为没用 connect，发送必须用 sendto 并带上目标地址！
+                self.client.sendto(data_str.encode('utf-8'), self.target_addr)
             except OSError as e:
                 print(f"UDP Error: {e}")
                 self.is_connected = False
@@ -207,12 +207,12 @@ class UDPService:
     def _read_loop(self):
         while self.is_connected:
             try:
-                # 接收小车回传的数据
-                data = self.client.recv(1024).decode('utf-8', errors='ignore')
-                if data and self.log_callback:
-                    self.log_callback(f"[UDP] {data}")
+                # 【核心修改 3】：改用 recvfrom 接收数据，无视源头限制！
+                data, addr = self.client.recvfrom(1024)
+                decoded_data = data.decode('utf-8', errors='ignore').strip()
+                if decoded_data and self.log_callback:
+                    self.log_callback(f"[UDP] {decoded_data}")
             except socket.timeout:
-                # UDP 超时很正常，直接忽略即可
                 pass
             except Exception as e: 
                 pass
