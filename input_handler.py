@@ -38,6 +38,12 @@ class InputHandler:
         joy_gimbal.tag_bind(joy_gimbal.knob, "<ButtonRelease-1>", self.on_gimbal_release)
         joy_gimbal.tag_bind(joy_gimbal.knob, "<Button-1>", lambda e: setattr(self.app, 'gimbal_active', True))
 
+        # 5. 【新增】摇杆 4 (Y/H 纵向轴)
+        joy_yh = self.app.view.joy_yh
+        joy_yh.tag_bind(joy_yh.knob, "<B1-Motion>", self.on_yh_drag)
+        joy_yh.tag_bind(joy_yh.knob, "<ButtonRelease-1>", self.on_yh_release)
+
+
     # ============================================================
     # 键盘控制逻辑
     # ============================================================
@@ -102,6 +108,15 @@ class InputHandler:
         elif key == 'k':
             self.app.adjust_zero(0.1)
 
+        if key == 'y':
+            self.app.val_yh = PARAMS["max_x_offset"]
+            self.update_yh_ui_position()
+            self.app.send_update_packet(force=True) # <--- 立刻发包
+        elif key == 'h':
+            self.app.val_yh = -PARAMS["max_x_offset"]
+            self.update_yh_ui_position()
+            self.app.send_update_packet(force=True) # <--- 立刻发包
+
     def on_key_release(self, event):
         key = event.keysym.lower()
         if key in self.app.keys_move:
@@ -110,6 +125,11 @@ class InputHandler:
                 self.force_stop_sequence()
         elif event.keysym in self.app.keys_pose:
             self.app.keys_pose[event.keysym] = False
+        # 松开 Y/H 键时，不但数值归零，还要立刻发送一次指令
+        if key in ['y', 'h']:
+            self.app.val_yh = 0
+            self.update_yh_ui_position()
+            self.app.send_update_packet(force=True) # <--- 立刻告诉单片机：回到中心！
 
     # ============================================================
     # ★ 鼠标摇杆控制逻辑
@@ -190,3 +210,45 @@ class InputHandler:
         self.app.current_pan = 90.0
         self.app.current_tilt = 90.0
         self.app.send_gimbal_udp(90, 90)
+
+
+
+    # === 【新增逻辑】纵向摇杆鼠标控制 ===
+    def on_yh_drag(self, event):
+        joy = self.app.view.joy_yh
+        center = joy.size // 2
+        radius = joy.radius
+        
+        # 核心修改：忽略 event.x，强行让 dx = 0，实现“只能前后”
+        dx = 0 
+        dy = event.y - center
+        
+        # 距离限幅
+        if abs(dy) > radius:
+            dy = radius if dy > 0 else -radius
+            
+        # UI 更新：仅在垂直方向移动
+        joy.update_position(center, center + dy)
+        
+        # 计算数值映射到 PARAMS["max_move"]
+        # 向上为正(Y)，向下为负(H)
+        self.app.val_yh = int(-(dy / radius) * PARAMS["max_x_offset"])  
+        # 【核心修复】：拖动时也强制实时发包，否则会有延迟感
+        self.app.send_update_packet(force=True) 
+
+    def on_yh_release(self, event):
+        self.app.val_yh = 0
+        c = self.app.view.joy_yh.size // 2
+        self.app.view.joy_yh.update_position(c, c)
+        # 松开鼠标摇杆时，立刻强制发包
+        self.app.send_update_packet(force=True) # <--- 立刻告诉单片机：回到中心！
+       
+
+    # 辅助方法：根据数值更新摇杆球位置
+    def update_yh_ui_position(self):
+        joy = self.app.view.joy_yh
+        c = joy.size // 2
+        r = joy.radius
+        # 反向映射：val_yh -> dy
+        dy = -(self.app.val_yh / PARAMS["max_x_offset"]) * r
+        joy.update_position(c, c + dy)   

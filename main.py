@@ -38,6 +38,9 @@ class Controller:
         self.gimbal_active = False            # 云台交互状态
         self.last_gimbal_log_time = 0         # 云台日志限流时间戳
 
+        # --- 初始化变量 ---
+        self.val_yh = 0 # 用于存储 Y/H 轴的数值
+
         # --- 底盘与姿态运动变量 ---
         self.val_m = 0                        # 前进/后退速度 (Movement)
         self.val_t = 0                        # 左右转向值 (Turnment)
@@ -176,27 +179,32 @@ class Controller:
     # ★ 核心通信与控制心跳
     # ============================================================
     def heartbeat_loop(self):
-        """控制器的‘发动机’，处理定时任务与键盘连续移动"""
+        """控制器的‘发动机’：现在它是无条件的，每 50ms 必然发送一次数据包"""
+        
+        # 1. 自动处理控制逻辑：计算当前应该发送什么数值
         if not self.joy1_dragging:
+            # 如果没有在拖动摇杆
             if any(self.keys_move.values()):
+                # 如果有键盘按键，则计算键盘控制的速度
                 self.input_handler.calc_speed_from_keys()
             else:
-                if self.val_m != 0 or self.val_t != 0:
-                    pass # 此处可添加减速逻辑
+                # 【关键点】既没按键盘也没拉摇杆 -> 强制数值回正为 0
+                # 这样发出的包里速度就是 0，机器人会立刻停止
+                self.val_m = 0
+                self.val_t = 0
+                # 如果你的 val_yh 也是一种瞬时速度，也可以在这里归零
+                # self.val_yh = 0
 
-        # 检查活动状态
-        is_active = (
-            any(self.keys_move.values()) or 
-            any(self.keys_pose.values()) or 
-            self.val_m != 0 or 
-            self.val_t != 0 or
-            self.joy1_dragging or 
-            self.joy2_dragging
-        )
+        # 2. 【核心修改】删掉 is_active 逻辑，直接“暴力”发送
+        # 不管现在的状态是移动还是停止，只要循环在跑，就往外发包
+        self.send_update_packet(force=True)
 
-        if is_active:
-            self.send_update_packet(force=True)
+        # 3. (建议) 把云台也带上，实现全系统状态同步
+        # 即使云台没动，持续发送当前角度也能防止丢包导致的“位置不到位”
+        if self.gimbal_override_enabled:
+            self.send_gimbal_udp(self.current_pan, self.current_tilt)
         
+        # 4. 维持 20Hz 的频率 (50ms 一次)
         self.root.after(50, self.heartbeat_loop)
 
     def send_update_packet(self, force=False):
@@ -205,7 +213,11 @@ class Controller:
         if force or (now - self.last_send_time > 0.05):
             m_int = int(self.val_m)
             t_int = int(self.val_t)
-            cmd_str = f"#{m_int},{t_int},{self.val_zero:.2f},{self.val_h:.1f},{self.val_r:.2f}\r\n"
+            # 【核心修复】：你需要增加下面这一行，把 self.val_yh 转成整数存进 yh_int
+            yh_int = int(self.val_yh) 
+            # 假设你修改了单片机的接收协议，在最后增加了一个 yh 字段
+            # 如果不改协议，你可以根据需要决定将这个值合并到 m 还是单独处理
+            cmd_str = f"#{m_int},{t_int},{self.val_zero:.2f},{self.val_h:.1f},{self.val_r:.2f},{yh_int}\r\n"
             
             self.comms.send(cmd_str)
             self.last_send_time = now

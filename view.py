@@ -444,6 +444,17 @@ class MainView:
         self.btn_gimbal_override.pack(side="top", pady=5, fill="x")
 
 
+        # === 【新增】纵向专用摇杆 (Y/H 控制) ===
+        tk.Frame(right_panel, height=2, bg=COLORS["grid"]).pack(fill="x", pady=10) # 分割线
+        
+        ttk.Label(right_panel, text="EXTRA AXIS // [Y] FWD - [H] BWD", 
+                font=("Consolas", 9), foreground=COLORS["main"]).pack(anchor="w")
+        
+        # 创建新摇杆，使用不同的主题色以示区别
+        self.joy_yh = JoystickWidget(right_panel, size=100, label="Y-H AXIS", color_theme=COLORS["accent"])
+        self.joy_yh.pack(side="top", pady=5)
+
+
         
 
     def setup_resize_grip(self):
