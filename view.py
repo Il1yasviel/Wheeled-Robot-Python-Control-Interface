@@ -26,6 +26,7 @@ class MainView:
         """
         self.root = root
         self.close_callback = close_callback
+        self._lock_yh_scale = False
         
         
         # --- 窗口物理特性设置 ---
@@ -38,6 +39,9 @@ class MainView:
         self.setup_title_bar()   # 构建自定义的顶部拖动手柄
         self.setup_main_layout() # 构建核心 UI 结构
         self.setup_resize_grip() # 添加右下角的缩放手柄
+ 
+
+
 
     def center_window(self, w, h):
         """根据屏幕分辨率自动居中窗口的数学计算"""
@@ -453,7 +457,30 @@ class MainView:
         # 创建新摇杆，使用不同的主题色以示区别
         self.joy_yh = JoystickWidget(right_panel, size=100, label="Y-H AXIS", color_theme=COLORS["accent"])
         self.joy_yh.pack(side="top", pady=5)
+        # === 【新增】YH 轴最大偏移量调节 (5档滑动器) ===
+        tk.Frame(right_panel, height=2, bg=COLORS["grid"]).pack(fill="x", pady=10) # 分割线
+        
+        # 标题标签
+        ttk.Label(right_panel, text="YH LIMIT // RANGE_GEAR", 
+                  font=("Consolas", 9), foreground=COLORS["main"]).pack(anchor="w")
+        
+        # 显示当前挡位数值的标签
+        self.lbl_yh_limit = ttk.Label(right_panel, text="MAX: 100", 
+                                      font=("Orbitron", 10, "bold"), foreground=COLORS["accent"])
+        self.lbl_yh_limit.pack(side="top", pady=2)
 
+        # 创建滑动条 (ttk.Scale)
+        # from_=20 (最小档), to=100 (最大档)
+        self.yh_scale = ttk.Scale(
+            right_panel, 
+            from_=20, 
+            to=100, 
+            orient="horizontal",
+            bootstyle="info", # 使用青色主题
+            command=self._on_yh_scale_scroll # 绑定滑动回调
+        )
+        self.yh_scale.set(100) # 默认设为最大值 100
+        self.yh_scale.pack(fill="x", padx=5, pady=5)
 
         
 
@@ -485,3 +512,26 @@ class MainView:
         """公共方法：向控制台末尾追加一条日志信息，并自动滚动到底部"""
         self.console.insert(tk.END, f"{text}\n")
         self.console.see(tk.END) # 保持视图在最新一行
+
+
+
+    def _on_yh_scale_scroll(self, val):
+        """处理 5 档吸附逻辑"""
+        # 1. 检查自己的锁
+        if self._lock_yh_scale: return
+        
+        v = float(val)
+        gears = [20, 40, 60, 80, 100]
+        closest_gear = min(gears, key=lambda x: abs(x - v))
+        
+        # 2. 上锁，修改，解锁
+        self._lock_yh_scale = True
+        self.yh_scale.set(closest_gear)
+        self._lock_yh_scale = False
+        
+        # 3. 更新 UI
+        self.lbl_yh_limit.config(text=f"MAX: {closest_gear:03d}")
+        
+        # 4. 【关键】通知 Controller 结果
+        if hasattr(self, 'on_yh_limit_changed_callback'):
+            self.on_yh_limit_changed_callback(closest_gear)

@@ -303,30 +303,29 @@ class Controller:
             self.log_msg("[SYS] >> DISCONNECTED")
 
     # ============================================================
-    # ★ UI 绑定与系统事件处理
-    # ============================================================
     def bind_events(self):
-            """集中绑定所有的UI事件和快捷键"""
-            # ==========================================
-            # 1. 保留的部分：只管普通的 UI 按钮和输入框
-            # ==========================================
-            self.view.btn_scan.config(command=self.refresh_ports)
-            self.view.btn_connect.config(command=lambda: self.toggle_connect("serial"))
-            self.view.btn_tcp_connect.config(command=lambda: self.toggle_connect("tcp"))
-            
-            # 零点微调与确认
-            self.view.entry_zero.bind("<Return>", self.on_zero_confirm)
-            self.view.btn_zero_up.command = lambda: self.adjust_zero(-0.1)
-            self.view.btn_zero_down.command = lambda: self.adjust_zero(0.1)
-            
-            # 云台手动模式切换按钮
-            self.view.btn_gimbal_override.config(command=self.toggle_gimbal_override)
+        """集中绑定所有的UI事件和快捷键"""
+        # ==========================================
+        # 1. 常规按钮绑定
+        # ==========================================
+        self.view.btn_scan.config(command=self.refresh_ports)
+        self.view.btn_connect.config(command=lambda: self.toggle_connect("serial"))
+        self.view.btn_tcp_connect.config(command=lambda: self.toggle_connect("tcp"))
+        self.view.entry_zero.bind("<Return>", self.on_zero_confirm)
+        self.view.btn_zero_up.command = lambda: self.adjust_zero(-0.1)
+        self.view.btn_zero_down.command = lambda: self.adjust_zero(0.1)
+        self.view.btn_gimbal_override.config(command=self.toggle_gimbal_override)
 
-            # ==========================================
-            # 2. 修改的部分：把键盘和摇杆的脏活累活全丢给 input_handler
-            # ==========================================
-            # 这一行代码，等同于旧代码里那十几行 joy.tag_bind 和 root.bind
-            self.input_handler.bind_all()
+        # ==========================================
+        # 2. 处理器绑定
+        # ==========================================
+        self.input_handler.bind_all()
+
+        # ==========================================
+        # 3. 滑动条绑定 (重构后的简洁版)
+        # ==========================================
+        # 只需要给 View 留下一个“回电地址”
+        self.view.on_yh_limit_changed_callback = self.handle_yh_limit_change
 
 
 
@@ -408,6 +407,21 @@ class Controller:
             self.update_chat_ui("System", f"[System] 收到语音数据，已保存至: {filename}\n", "")
         except Exception as e:
             print(f"音频保存失败: {e}")        
+
+
+    def on_scale_changed(self, val):
+        new_limit = int(float(val))
+        # 这一步至关重要：同步更新 InputHandler 里的变量
+        self.input_handler.max_x_offset = new_limit    
+
+    def handle_yh_limit_change(self, new_limit):
+        """
+        当 View 层的滑动条确定了档位后，会自动跳到这里
+        """
+        # 更新 InputHandler 的动态限额
+        self.input_handler.max_x_offset = new_limit
+        # 打印日志
+        self.log_msg(f"[SYS] >> YH_LIMIT 已同步为: {new_limit}")          
 
 
 # 程序入口

@@ -14,6 +14,8 @@ class InputHandler:
     def __init__(self, app: 'Controller'):       #主要是用于代码补全，能快速跳转函数
         # 这里的 app 就是 Controller 的实例 (self)
         self.app = app
+        # --- 新增：将写死的配置转为动态变量 ---
+        self.max_x_offset = PARAMS.get("max_x_offset", 100) 
 
     def bind_all(self):
         """集中绑定所有的键盘和鼠标事件"""
@@ -109,11 +111,11 @@ class InputHandler:
             self.app.adjust_zero(0.1)
 
         if key == 'y':
-            self.app.val_yh = PARAMS["max_x_offset"]
+            self.app.val_yh = -self.max_x_offset
             self.update_yh_ui_position()
             self.app.send_update_packet(force=True) # <--- 立刻发包
         elif key == 'h':
-            self.app.val_yh = -PARAMS["max_x_offset"]
+            self.app.val_yh = self.max_x_offset
             self.update_yh_ui_position()
             self.app.send_update_packet(force=True) # <--- 立刻发包
 
@@ -232,8 +234,8 @@ class InputHandler:
         
         # 计算数值映射到 PARAMS["max_move"]
         # 向上为正(Y)，向下为负(H)
-        self.app.val_yh = int(-(dy / radius) * PARAMS["max_x_offset"])  
-        # 【核心修复】：拖动时也强制实时发包，否则会有延迟感
+        # 修改这里：使用动态的 self.max_x_offset
+        self.app.val_yh = int(-(dy / radius) * self.max_x_offset)  
         self.app.send_update_packet(force=True) 
 
     def on_yh_release(self, event):
@@ -250,5 +252,7 @@ class InputHandler:
         c = joy.size // 2
         r = joy.radius
         # 反向映射：val_yh -> dy
-        dy = -(self.app.val_yh / PARAMS["max_x_offset"]) * r
+        # 修改这里：防止除以 0 的保险逻辑，并使用 self.max_x_offset
+        limit = self.max_x_offset if self.max_x_offset != 0 else 1
+        dy = -(self.app.val_yh / limit) * r
         joy.update_position(c, c + dy)   
