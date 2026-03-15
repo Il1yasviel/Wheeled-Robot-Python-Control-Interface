@@ -55,8 +55,8 @@ class InputHandler:
         
         if self.app.keys_move['w']: ty -= r * 1.0
         if self.app.keys_move['s']: ty += r * 1.0
-        if self.app.keys_move['a']: tx -= r * 0.9
-        if self.app.keys_move['d']: tx += r * 0.9
+        if self.app.keys_move['a']: tx -= r * 1.0
+        if self.app.keys_move['d']: tx += r * 1.0
         
         dist = math.sqrt(tx*tx + ty*ty)
         if dist > r:
