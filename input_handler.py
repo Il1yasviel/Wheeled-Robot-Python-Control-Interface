@@ -67,7 +67,7 @@ class InputHandler:
         self.app.view.joy1.update_position(c + tx, c + ty)
 
         self.app.val_m = int(-ty / r * PARAMS["max_move"])
-        self.app.val_t = int(-tx / r * PARAMS["max_move"])
+        self.app.val_t = int(-tx / r * PARAMS["ad_max_move"])
 
     def step_pose_value(self, key):
         changed = False
@@ -144,7 +144,7 @@ class InputHandler:
         if dist > r: dx, dy = dx*r/dist, dy*r/dist
         self.app.view.joy1.update_position(c + dx, c + dy)
         self.app.val_m = int(-dy/r*PARAMS["max_move"])
-        self.app.val_t = int(-dx/r*PARAMS["max_move"])
+        self.app.val_t = int(-dx/r*PARAMS["ad_max_move"])
 
     def on_release_joy1(self, event):
         self.app.joy1_dragging = False
